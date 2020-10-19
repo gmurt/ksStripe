@@ -2,7 +2,8 @@ program ListCustomers;
 
 uses
   Vcl.Forms,
-  untMain in 'untMain.pas' {Form10};
+  untMain in 'untMain.pas' {Form10},
+  ksStripe in '..\..\ksStripe.pas';
 
 {$R *.res}
 

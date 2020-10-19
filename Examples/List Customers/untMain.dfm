@@ -21,8 +21,8 @@ object Form10: TForm10
     Align = alClient
     ItemHeight = 13
     TabOrder = 0
-    ExplicitTop = 46
-    ExplicitHeight = 260
+    ExplicitLeft = 32
+    ExplicitTop = 73
   end
   object btnGetCustomers: TButton
     Left = 0

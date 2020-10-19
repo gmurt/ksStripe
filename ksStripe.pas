@@ -46,6 +46,8 @@ type
 
 //------------------------------------------------------------------------------
 
+
+
   IStripeBaseObject = interface
   ['{AC396FFE-A89C-4811-8DDD-5A3A69546155}']
     function GetID: string;
@@ -72,6 +74,20 @@ type
 
 //------------------------------------------------------------------------------
 
+  IStripeCard = interface(IStripeBaseObject)
+  ['{76652D56-42CE-4C2F-B0B2-1E6485D501AD}']
+    function GetBrand: string;
+    function GetLast4: string;
+    function GetExpMonth: integer;
+    function GetExpYear: integer;
+    property Last4: string read GetLast4;
+    property Brand: string read GetBrand;
+    property ExpMonth: integer read GetExpMonth;
+    property ExpYear: integer read GetExpYear;
+  end;
+
+//------------------------------------------------------------------------------
+
   IStripeCharge = interface(IStripeBaseObject)
   ['{197B9D1A-B4F1-4220-AFDC-22DE5031F1B4}']
     function GetCreated: TDatetime;
@@ -81,6 +97,9 @@ type
     function GetAmountPence: integer;
     function GetCurrency: TStripeCurrency;
     function GetRefunded: Boolean;
+    function GetCard: IStripeCard;
+    function GetCustomer: string;
+    function GetDesc: string;
     property Created: TDateTime read GetCreated;
     property LiveMode: Boolean read GetLiveMode;
     property Paid: Boolean read GetPaid;
@@ -88,6 +107,9 @@ type
     property AmountPence: integer read GetAmountPence;
     property Currency: TStripeCurrency read GetCurrency;
     property Refunded: Boolean read GetRefunded;
+    property Customer: string read GetCustomer;
+    property Card: IStripeCard read GetCard;
+    property Desc: string read GetDesc;
   end;
 
 //------------------------------------------------------------------------------
@@ -167,23 +189,10 @@ type
 
 //------------------------------------------------------------------------------
 
-  IStripeCard = interface(IStripeBaseObject)
-  ['{76652D56-42CE-4C2F-B0B2-1E6485D501AD}']
-    function GetBrand: string;
-    function GetLast4: string;
-    function GetExpMonth: integer;
-    function GetExpYear: integer;
-    property Last4: string read GetLast4;
-    property Brand: string read GetBrand;
-    property ExpMonth: integer read GetExpMonth;
-    property ExpYear: integer read GetExpYear;
-  end;
-
-//------------------------------------------------------------------------------
-
   IStripe = interface
   ['{A00E2188-0DDB-469F-9C4A-0900DEEFD27B}']
     function GetLastError: string;
+    function GetLastJsonResult: string;
     function CreateToken(ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string): string;
     function CreateCharge(AToken, ADescription: string;
                           AAmountPence: integer;
@@ -206,7 +215,10 @@ type
                           const ALimit: Integer = 10): IStripeCustomerList;
     function CreateCustomer(AEmail, ADescription: string): IStripeCustomer;
     function GetBalance: Extended;
+    procedure UpdateCustomerValue(ACustID, AField, AValue: string);
     property LastError: string read GetLastError;
+    property LastJsonResult: string read GetLastJsonResult;
+
   end;
 
 //------------------------------------------------------------------------------
@@ -286,12 +298,15 @@ type
   TStripeCharge = class(TStripeBaseObject, IStripeCharge)
   strict private
     FCreated: TDateTime;
+    FDesc: string;
     FLiveMode: Boolean;
     FPaid: Boolean;
     FStatus: string;
     FAmountPence: integer;
     FCurrency: TStripeCurrency;
     FRefunded: Boolean;
+    FCustomer: string;
+    FCard: IStripeCard;
   private
     function GetCreated: TDatetime;
     function GetLiveMode: Boolean;
@@ -300,8 +315,12 @@ type
     function GetAmountPence: integer;
     function GetCurrency: TStripeCurrency;
     function GetRefunded: Boolean;
+    function GetCustomer: string;
+    function GetCard: IStripeCard;
+    function GetDesc: string;
   protected
     function GetObject: string; override;
+    procedure Clear; override;
     procedure LoadFromJson(AJson: TJsonObject); override;
     property Created: TDateTime read GetCreated;
     property LiveMode: Boolean read GetLiveMode;
@@ -310,6 +329,11 @@ type
     property AmountPence: integer read GetAmountPence;
     property Currency: TStripeCurrency read GetCurrency;
     property Refunded: Boolean read GetRefunded;
+    property Customer: string read GetCustomer;
+    property Card: IStripeCard read GetCard;
+    property Desc: string read GetDesc;
+  public
+    constructor Create; override;
   end;
 
 //------------------------------------------------------------------------------
@@ -327,6 +351,7 @@ type
     function GetExpYear: integer;
   protected
     function GetObject: string; override;
+    procedure Clear; override;
     procedure LoadFromJson(AJson: TJsonObject); override;
   public
     property Last4: string read GetLast4;
@@ -458,6 +483,7 @@ type
   strict private
     FSecretKey: string;
     FLastError: string;
+    FLastJsonResult: string;
   private
     procedure CheckForError(AJson: TJsonObject);
     {$IFDEF USE_NET_HTTP}
@@ -476,6 +502,7 @@ type
     function PostHttp(AToken, AMethod: string; AParams: TStrings): string;
     function DeleteHttp(AMethod: string): string;
     function GetLastError: string;
+    function GetLastJsonResult: string;
 
   protected
     function CreateToken(ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string): string;
@@ -489,6 +516,7 @@ type
     function CreateCard(ACustID, ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string; var AError: string): IStripeCard; overload;
     function DeleteCard(ACustID, ACardID: string): Boolean;
     function UpdateDefaultSource(ACustID, ACardID: string): Boolean;
+    procedure UpdateCustomerValue(ACustID, AField, AValue: string);
     function CreateChargeForCustomer(ACustID, ADescription: string; AAmountPence: integer; const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
     function GetAccount: string;
     function GetCapabilities: string;
@@ -501,6 +529,7 @@ type
     function GetBalance: Extended;
     function CreateCustomer(AEmail, ADescription: string): IStripeCustomer;
     property LastError: string read GetLastError;
+    property LastJsonResult: string read GetLastJsonResult;
   public
     constructor Create(ASecretKey: string);
   end;
@@ -631,6 +660,7 @@ begin
         AParams.Values['metadata['+AMetaData.Names[ICount]+']'] := AMetaData.ValueFromIndex[ICount];
     end;
     AResult := PostHttp(AToken, C_CHARGES, AParams);
+
     {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
     {$ELSE}
@@ -880,6 +910,7 @@ begin
     AHttp.CustomHeaders['Authorization'] := 'Bearer '+FSecretKey;
     AResponse := AHttp.Get(AUrl);
     Result := AResponse.ContentAsString;
+    FLastJsonResult := Result;
     {$ELSE}
     AHttp.Request.CustomHeaders.AddValue('Authorization', 'Bearer '+FSecretKey);
     Result := AHttp.Get(AUrl);
@@ -892,6 +923,11 @@ end;
 function TStripe.GetLastError: string;
 begin
   Result := FLastError;
+end;
+
+function TStripe.GetLastJsonResult: string;
+begin
+  Result := FLastJsonResult;
 end;
 
 function TStripe.GetPersons: string;
@@ -919,7 +955,8 @@ begin
     {$IFDEF USE_NET_HTTP}
     AHttp.CustomHeaders['Authorization'] := 'Bearer '+FSecretKey;
     AResponse := AHttp.Post('https://api.stripe.com/v1/'+AMethod, AParams);
-    Result := AResponse.ContentAsString
+    Result := AResponse.ContentAsString;
+    FLastJsonResult := Result;
     {$ELSE}
     AHttp.Request.CustomHeaders.AddValue('Authorization', 'Bearer '+FSecretKey);
     AResponse := TStringStream.Create;
@@ -932,6 +969,31 @@ begin
     {$ENDIF}
   finally
     AHttp.Free;
+  end;
+end;
+
+procedure TStripe.UpdateCustomerValue(ACustID, AField, AValue: string);
+var
+  AParams: TStrings;
+  AResult: string;
+  AJson: TJSONObject;
+begin
+  AParams := TStringList.Create;
+  try
+    AParams.Values[AField] := AValue;
+    AResult := PostHttp('', C_CUSTOMERS+'/'+ACustID, AParams);
+    {$IFDEF JSONDATAOBJECTS}
+    AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
+    try
+      CheckForError(AJson);
+    finally
+      AJson.Free;
+    end;
+  finally
+    AParams.Free;
   end;
 end;
 
@@ -1025,6 +1087,15 @@ end;
 { TStripeCard }
 
 
+procedure TStripeCard.Clear;
+begin
+  inherited;
+  FBrand := '';
+  FLast4 := '';
+  FExpMonth := 0;
+  FExpYear := 0;
+end;
+
 function TStripeCard.GetBrand: string;
 begin
   Result := FBrand;
@@ -1116,6 +1187,7 @@ begin
   inherited;
   FEmail := '';
   FDescription := '';
+  FName := '';
 end;
 
 function TStripeCustomer.GetDescription: string;
@@ -1408,6 +1480,27 @@ end;
 
 { TStripeCharge }
 
+procedure TStripeCharge.Clear;
+begin
+  inherited;
+  FCreated := 0;
+  FDesc := '';
+  FLiveMode := False;
+  FPaid := False;
+  FStatus := '';
+  FAmountPence := 0;
+  FCurrency := scUnknown;
+  FRefunded := False;
+  FCustomer := '';
+  FCard.Clear;
+end;
+
+constructor TStripeCharge.Create;
+begin
+  inherited;
+  FCard := TStripeCard.Create;
+end;
+
 function TStripeCharge.GetAmountPence: integer;
 begin
   Result := FAmountPence;
@@ -1416,6 +1509,21 @@ end;
 function TStripeCharge.GetCurrency: TStripeCurrency;
 begin
   Result := FCurrency;
+end;
+
+function TStripeCharge.GetCustomer: string;
+begin
+  Result := FCustomer;
+end;
+
+function TStripeCharge.GetDesc: string;
+begin
+  Result := FDesc;
+end;
+
+function TStripeCharge.GetCard: IStripeCard;
+begin
+  Result := FCard;
 end;
 
 function TStripeCharge.GetCreated: TDatetime;
@@ -1449,8 +1557,14 @@ begin
 end;
 
 procedure TStripeCharge.LoadFromJson(AJson: TJsonObject);
+var
+  AMethod: TJSONObject;
 begin
   inherited;
+  Clear;
+
+  FCard := TStripeCard.Create;
+
   {$IFDEF JSONDATAOBJECTS}
   FCreated := UnixToDateTime(AJson.I['created']);
   FLiveMode := AJson.S['livemode'] = 'true';
@@ -1459,6 +1573,14 @@ begin
   FAmountPence := StrToIntDef(AJson.S['amount'], 0);
   FCurrency := StringToCurrency(AJson.S['currency']);
   FRefunded := AJson.S['refunded'] = 'true';
+  FCustomer := AJson.S['customer'];
+  if AJson.Types['description'] = jdtString then FDesc := AJson.S['description'];
+  FCustomer := AJson.S['customer'];
+  if AJson.O['payment_method_details'] <> nil then
+  begin
+    if AJson.O['payment_method_details'].O['card'] <> nil then
+      FCard.LoadFromJson(AJson.O['payment_method_details'].O['card']);
+  end;
   {$ELSE}
   FCreated := UnixToDateTime(StrToInt(AJson.Values['created'].Value));
   FLiveMode := AJson.Values['livemode'].Value = 'true';
@@ -1467,8 +1589,20 @@ begin
   FAmountPence := StrToIntDef(AJson.Values['amount'].Value, 0);
   FCurrency := StringToCurrency(AJson.Values['currency'].Value);
   FRefunded := AJson.Values['refunded'].Value = 'true';
+  FCustomer := AJson.Values['customer'].Value;
+
+  AMethod := AJson.Values['payment_method_details'] as TJSONObject;
+  if AMethod <> nil then
+  begin
+    if AMethod.Values['card'] as TJSONObject <> nil then
+      FCard.LoadFromJson(AMethod.Values['card'] as TJSONObject);
+  end;
   {$ENDIF}
+
+
+
 end;
+
 
 initialization
 

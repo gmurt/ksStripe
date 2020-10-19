@@ -27,7 +27,6 @@ uses ksStripe;
 const
   C_STRIPE_SECRET_KEY = 'sk_live_************';
 
-
 {$R *.dfm}
 
 procedure TForm10.btnGetCustomersClick(Sender: TObject);
