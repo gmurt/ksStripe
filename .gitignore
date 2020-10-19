@@ -67,3 +67,5 @@ __recovery/
 
 # Boss dependency manager vendor folder https://github.com/HashLoad/boss
 modules/
+Examples/List Customers/ListCustomers.dproj
+Examples/List Customers/ListCustomers.res
