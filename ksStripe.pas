@@ -26,7 +26,16 @@ unit ksStripe;
 
 interface
 
-uses Classes, JsonDataObjects, Generics.Collections, DateUtils, SysUtils;
+uses Classes, Generics.Collections
+
+{.$DEFINE JSONDATAOBJECTS}
+
+  {$IFDEF JSONDATAOBJECTS}
+  , JsonDataObjects
+  {$ELSE}
+  , Json
+  {$ENDIF}
+;
 
 {$IF CompilerVersion >= 29}
   {$DEFINE USE_NET_HTTP}
@@ -208,6 +217,7 @@ type
 implementation
 
 uses
+  SysUtils, DateUtils,
   {$IFDEF USE_NET_HTTP}
   System.Net.URLClient, System.Net.HttpClient, System.Net.HttpClientComponent;
   {$ELSE}
@@ -555,11 +565,21 @@ var
   AError: TJSONObject;
 begin
   FLastError := '';
+  {$IFDEF JSONDATAOBJECTS}
   if AJson.Contains('error') then
   begin
     AError := AJson.O['error'] as TJSONObject;
     FLastError := AError.s['message'];
   end;
+  {$ELSE}
+  if AJson.Values['error'] <> nil then
+  begin
+    AError := AJson.Values['error'] as TJSONObject;
+    FLastError := AError.Values['message'].Value;
+  end;
+  {$ENDIF}
+
+
 end;
 
 function TStripe.CreateCard(ACustID, ACardToken: string; var AError: string): IStripeCard;
@@ -573,7 +593,11 @@ begin
   try
     AParams.Values['source'] := ACardToken;
     AResult := PostHttp('', C_CUSTOMERS+'/'+ACustID+'/sources',AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     try
       CheckForError(AJson);
       AError := FLastError;
@@ -607,7 +631,11 @@ begin
         AParams.Values['metadata['+AMetaData.Names[ICount]+']'] := AMetaData.ValueFromIndex[ICount];
     end;
     AResult := PostHttp(AToken, C_CHARGES, AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     try
       CheckForError(AJson);
       AError := FLastError;
@@ -661,7 +689,11 @@ begin
     AParams.Values['card[exp_year]'] := IntToStr(AExpYear);
     AParams.Values['card[cvc]'] := ACvc;
     AResult := PostHttp('', C_TOKENS,AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     CheckForError(AJson);
     try
       Result := AJson.Values['id'].Value;
@@ -690,7 +722,11 @@ begin
     AParams.Values['source[exp_year]'] := IntToStr(AExpYear);
     AParams.Values['source[cvc]'] := ACvc;
     AResult := PostHttp('', C_CUSTOMERS+'/'+ACustID+'/sources',AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     try
       CheckForError(AJson);
       AError := FLastError;
@@ -748,14 +784,23 @@ var
 begin
   Result := TStripeCustomer.Create;
   AResult := GetHttp(C_CUSTOMERS+'/'+ACustID, nil);
+  {$IFDEF JSONDATAOBJECTS}
   AJson := TJSONObject.Parse(AResult) as TJSONObject;
+  {$ELSE}
+  AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+  {$ENDIF}
   try
-    if AJson.Contains('error') then
+    CheckForError(AJson);
+    if FLastError <> '' then
     begin
       Result.Clear;
       Exit;
     end;
+    {$IFDEF JSONDATAOBJECTS}
     if AJson.S['deleted'] = 'true' then
+    {$ELSE}
+    if AJson.Values['deleted'].Value = 'true' then
+    {$ENDIF}
     begin
       Result.Clear;
       Exit;
@@ -782,7 +827,11 @@ begin
 
     Result := TStripeCustomerList.Create;
     AResult := GetHttp(C_CUSTOMERS, AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     try
       Result.LoadFromJson(AJson);
     finally
@@ -939,7 +988,11 @@ begin
     AParams.Values['email'] := AEmail;
     AParams.Values['description'] := ADescription;
     AResult := PostHttp('', C_CUSTOMERS, AParams);
+    {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
     try
       CheckForError(AJson);
       Result.LoadFromJson(AJson);
@@ -1000,10 +1053,17 @@ end;
 procedure TStripeCard.LoadFromJson(AJson: TJsonObject);
 begin
   inherited;
+  {$IFDEF JSONDATAOBJECTS}
   FBrand := AJson.S['brand'];
   FLast4 := AJson.S['last4'];
   FExpMonth := AJson.I['exp_month'];
   FExpYear := AJson.I['exp_year'];
+  {$ELSE}
+  FBrand := AJson.Values['brand'].Value;
+  FLast4 := AJson.Values['last4'].Value;
+  FExpMonth := StrToInt(AJson.Values['exp_month'].Value);
+  FExpYear := StrToInt(AJson.Values['exp_year'].Value);
+  {$ENDIF}
 end;
 
 //------------------------------------------------------------------------------
@@ -1028,7 +1088,11 @@ end;
 procedure TStripeBaseObject.LoadFromJson(AJson: TJsonObject);
 begin
   FJson := AJson;
+  {$IFDEF JSONDATAOBJECTS}
   FId := FJson.S['id'];
+  {$ELSE}
+  FId := FJson.Values['id'].Value;
+  {$ENDIF}
 end;
  procedure TStripeBaseObject.SetID(const Value: string);
 begin
@@ -1078,9 +1142,15 @@ procedure TStripeCustomer.LoadFromJson(AJson: TJsonObject);
 begin
   inherited;
   Clear;
+  {$IFDEF JSONDATAOBJECTS}
   if AJson.Types['description'] <> jdtObject then FDescription := AJson.S['description'];
   if AJson.Types['email'] <> jdtObject then FEmail := AJson.S['email'];
   if AJson.Types['name'] <> jdtObject then FName := AJson.S['name'];
+  {$ELSE}
+  FDescription := AJson.Values['description'].Value;
+  FEmail := AJson.Values['email'].Value;
+  FName := AJson.Values['name'].Value;
+  {$ENDIF}
 end;
 
 
@@ -1151,6 +1221,7 @@ end;
 procedure TStripePlan.LoadFromJson(AJson: TJsonObject);
 begin
   inherited;
+  {$IFDEF JSONDATAOBJECTS}
   FInterval := AJson.S['interval'];
   FName := AJson.S['name'];
   FCreated := UnixToDateTime(StrToInt(AJson.S['created']));
@@ -1159,6 +1230,16 @@ begin
   FIntervalCount := StrToIntDef(AJson.S['interval_count'], 0);
   FTrialPeriodDays := StrToIntDef(AJson.S['trial_period_days'], 0);
   FStatementDescriptor := AJson.S['statement_descriptor'];
+  {$ELSE}
+  FInterval := AJson.Values['interval'].Value;
+  FName := AJson.Values['name'].Value;
+  FCreated := UnixToDateTime(StrToInt(AJson.Values['created'].Value));
+  FAmountPence := StrToIntDef(AJson.Values['amount'].Value, 0);
+  FCurrency :=  StringToCurrency(AJson.Values['currency'].Value);
+  FIntervalCount := StrToIntDef(AJson.Values['interval_count'].Value, 0);
+  FTrialPeriodDays := StrToIntDef(AJson.Values['trial_period_days'].Value, 0);
+  FStatementDescriptor := AJson.Values['statement_descriptor'].Value;
+  {$ENDIF}
 end;
 
 //------------------------------------------------------------------------------
@@ -1239,8 +1320,13 @@ end;
 procedure TStripeSubscription.LoadFromJson(AJson: TJsonObject);
 begin
   inherited;
+  {$IFDEF JSONDATAOBJECTS}
   FPlan.LoadFromJson(AJson.O['plan']);
   FStatus := AJson.S['status'];
+  {$ELSE}
+  FPlan.LoadFromJson(AJson.Values['plan'] as TJSONObject);
+  FStatus := AJson.Values['status'].Value;
+  {$ENDIF}
 end;
 
 //------------------------------------------------------------------------------
@@ -1302,11 +1388,19 @@ begin
   Clear;
   if AJson = nil then
     Exit;
+  {$IFDEF JSONDATAOBJECTS}
   AArray := AJson.A['data'];
+  {$ELSE}
+  AArray := AJson.Values['data'] as TJSONArray;
+  {$ENDIF}
 
   for ICount := 0 to AArray.Count-1 do
   begin
+    {$IFDEF JSONDATAOBJECTS}
     AddObject.LoadFromJson(AArray.O[ICount]);
+    {$ELSE}
+    AddObject.LoadFromJson(AArray.Items[ICount] as TJSONObject);
+    {$ENDIF}
   end;
 end;
 
@@ -1357,6 +1451,7 @@ end;
 procedure TStripeCharge.LoadFromJson(AJson: TJsonObject);
 begin
   inherited;
+  {$IFDEF JSONDATAOBJECTS}
   FCreated := UnixToDateTime(AJson.I['created']);
   FLiveMode := AJson.S['livemode'] = 'true';
   FPaid := AJson.S['paid'] = 'true';
@@ -1364,6 +1459,15 @@ begin
   FAmountPence := StrToIntDef(AJson.S['amount'], 0);
   FCurrency := StringToCurrency(AJson.S['currency']);
   FRefunded := AJson.S['refunded'] = 'true';
+  {$ELSE}
+  FCreated := UnixToDateTime(StrToInt(AJson.Values['created'].Value));
+  FLiveMode := AJson.Values['livemode'].Value = 'true';
+  FPaid := AJson.Values['paid'].Value = 'true';
+  FStatus := AJson.Values['status'].Value;
+  FAmountPence := StrToIntDef(AJson.Values['amount'].Value, 0);
+  FCurrency := StringToCurrency(AJson.Values['currency'].Value);
+  FRefunded := AJson.Values['refunded'].Value = 'true';
+  {$ENDIF}
 end;
 
 initialization
