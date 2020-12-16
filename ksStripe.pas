@@ -28,7 +28,7 @@ interface
 
 uses Classes, Generics.Collections
 
-{.$DEFINE JSONDATAOBJECTS}
+{$DEFINE JSONDATAOBJECTS}
 
   {$IFDEF JSONDATAOBJECTS}
   , JsonDataObjects
@@ -204,6 +204,7 @@ type
     function DeleteCard(ACustID, ACardID: string): Boolean;
     function UpdateDefaultSource(ACustID, ACardID: string): Boolean;
     function CreateChargeForCustomer(ACustID, ADescription: string; AAmountPence: integer; const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
+    function RefundCharge(AChargeID: string): string;
     function GetCustomer(ACustID: string): IStripeCustomer;
     function CustomerExists(ACustID: string; ACustomer: IStripeCustomer): Boolean;
     function GetAccount: string;
@@ -511,7 +512,7 @@ type
                           AMetaData: TStrings;
                           var AError: string;
                           const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
-
+    function RefundCharge(AChargeID: string): string;
     function CreateCard(ACustID, ACardToken: string; var AError: string): IStripeCard; overload;
     function CreateCard(ACustID, ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string; var AError: string): IStripeCard; overload;
     function DeleteCard(ACustID, ACardID: string): Boolean;
@@ -969,6 +970,24 @@ begin
     {$ENDIF}
   finally
     AHttp.Free;
+  end;
+end;
+
+function TStripe.RefundCharge(AChargeID: string): string;
+var
+  AParams: TStrings;
+begin
+  try
+    AParams := TStringList.Create;
+    try
+      AParams.Values['charge'] := AChargeID;
+      Result := PostHttp('', 'refunds', AParams);
+    finally
+      AParams.Free;
+    end;
+  except
+    on E:Exception do
+      Result := E.Message;
   end;
 end;
 
@@ -1557,8 +1576,6 @@ begin
 end;
 
 procedure TStripeCharge.LoadFromJson(AJson: TJsonObject);
-var
-  AMethod: TJSONObject;
 begin
   inherited;
   Clear;
