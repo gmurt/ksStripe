@@ -194,7 +194,7 @@ type
     function GetLastError: string;
     function GetLastJsonResult: string;
     function CreateToken(ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string): string;
-    function ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer): IStripeCharge;
+    function ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer; var AError: string): IStripeCharge;
     function CreateCharge(AToken, ADescription: string;
                           AAmountPence: integer;
                           AMetaData: TStrings;
@@ -209,7 +209,7 @@ type
     function CreateCard(ACustID, ACardToken: string; var AError: string): IStripeCard; overload;
     function CreateCard(ACustID, ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string; var AError: string): IStripeCard; overload;
     function CreateSetupIntent(ACustID: string): string;
-    function CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer): string;
+    function CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer; const AMetaData: TStrings = nil): string;
     function DeleteCard(ACustID, ACardID: string): Boolean;
     function UpdateDefaultSource(ACustID, ACardID: string): Boolean;
     function CreateChargeForCustomer(ACustID, ADescription: string; AAmountPence: integer; const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
@@ -534,7 +534,7 @@ type
 
   protected
     function CreateToken(ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string): string;
-    function ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer): IStripeCharge;
+    function ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer; var AError: string): IStripeCharge;
     function CreateCharge(AToken, ADescription: string;
                           AAmountPence: integer;
                           AMetaData: TStrings;
@@ -551,7 +551,7 @@ type
     function CreateCard(ACustID, ACardNum: string; AExpMonth, AExpYear: integer; ACvc: string; var AError: string): IStripeCard; overload;
     function CreateSetupIntent(ACustID: string): string;
 
-    function CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer): string;
+    function CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer; const AMetaData: TStrings = nil): string;
 
     function DeleteCard(ACustID, ACardID: string): Boolean;
     function UpdateDefaultSource(ACustID, ACardID: string): Boolean;
@@ -705,24 +705,22 @@ begin
         AParams.Values['metadata['+AMetaData.Names[ICount]+']'] := AMetaData.ValueFromIndex[ICount];
     end;
 
-    try
     AResult := PostHttp(AToken, C_CHARGES, AParams);
-    except
-      on E:Exception do
-      begin
 
-        raise;
-      end;
-    end;
     {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
     {$ELSE}
     AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
     {$ENDIF}
+ //   ALog := 5;
+
     try
       CheckForError(AJson);
+ //   ALog := 6;
       AError := FLastError;
+  //  ALog := 7;
       Result.LoadFromJson(AJson);
+ //   ALog := 8;
     finally
       AJson.Free;
     end;
@@ -758,11 +756,12 @@ end;
 
 {$ENDIF}
 
-function TStripe.CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer): string;
+function TStripe.CreatePaymentIntent(ACustID, ADescription: string; AAmountCents: integer; const AMetaData: TStrings = nil): string;
 var
   AParams: TStrings;
   AResult: string;
   AJson: TJSONObject;
+  ICount: integer;
 begin
   AParams := TStringList.Create;
   try
@@ -771,6 +770,14 @@ begin
     AParams.Values['currency'] := 'gbp';
     AParams.Values['description'] := ADescription;
     AParams.Values['amount'] := AAmountCents.ToString;
+
+    if AMetaData <> nil then
+    begin
+      for ICount := 0 to AMetaData.Count-1 do
+        AParams.Values['metadata['+AMetaData.Names[ICount]+']'] := AMetaData.ValueFromIndex[ICount];
+    end;
+
+
     AResult := PostHttp('', C_PAYMENT_INTENTS, AParams);
     {$IFDEF JSONDATAOBJECTS}
     AJson := TJSONObject.Parse(AResult) as TJSONObject;
@@ -791,7 +798,7 @@ begin
 end;
 
 
-function TStripe.ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer): IStripeCharge;
+function TStripe.ChargePaymentMethod(ACustID, APaymentMethod, ACurrency, ADesc: string; AAmountCents: integer; var AError: string): IStripeCharge;
 var
   AParams: TStrings;
   AResult: string;
@@ -818,11 +825,16 @@ begin
     {$ELSE}
     AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
     {$ENDIF}
-
-    Result := GetCharge(AJson.O['charges'].A['data'][0].S['id']);
-    CheckForError(AJson);
     try
-      //Result := AJson.Values['client_secret'].Value;
+      if AJson.Contains('error') then
+      begin
+        AError := AJson.O['error'].S['message'];
+        Exit;
+      end;
+
+      Result := GetCharge(AJson.O['charges'].A['data'][0].S['id']);
+      CheckForError(AJson);
+        //Result := AJson.Values['client_secret'].Value;
     finally
       AJson.Free;
     end;
