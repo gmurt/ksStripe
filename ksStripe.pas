@@ -52,11 +52,13 @@ type
   ['{AC396FFE-A89C-4811-8DDD-5A3A69546155}']
     function GetID: string;
     function GetObject: string;
+    function GetAsJson: string;
     procedure SetID(const Value: string);
     procedure Clear;
     procedure LoadFromJson(AJson: TJsonObject);
     property ID: string read GetID write SetID;
     property Obj: string read GetObject;
+    property AsJson: string read GetAsJson;
   end;
 
 //------------------------------------------------------------------------------
@@ -112,6 +114,9 @@ type
     property Desc: string read GetDesc;
   end;
 
+  IStripeChargeList = interface(IStripeBaseObjectList<IStripeCharge>)
+  ['{1A44D5B8-4355-4200-8295-A19D85F4D710}']
+  end;
 //------------------------------------------------------------------------------
 
   IStripePlan = interface(IStripeBaseObject)
@@ -201,6 +206,7 @@ type
                           var AError: string;
                           const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
     function GetCharge(AChargeID: string): IStripeCharge; overload;
+    function GetCharges: IStripeChargeList;
     procedure GetCharge(AChargeID: string; ACharge: TJsonObject); overload;
 
     function GetCheckoutSession(ASessionID: string): TJsonObject;
@@ -291,14 +297,17 @@ type
     FId: string;
   private
     procedure SetID(const Value: string);
+    function GetAsJson: string;
   protected
     function GetID: string;
     function GetObject: string; virtual; abstract;
     procedure LoadFromJson(AJson: TJsonObject); virtual;
   public
     constructor Create; virtual;
+    destructor Destroy; override;
     procedure Clear; virtual;
     property ID: string read GetID write SetID;
+    property AsJson: string read GetAsJson;
   end;
 
 //------------------------------------------------------------------------------
@@ -362,6 +371,15 @@ type
     property Desc: string read GetDesc;
   public
     constructor Create; override;
+  end;
+
+//------------------------------------------------------------------------------
+
+  TStripeChargeList = class(TStripeBaseObjectList<IStripeCharge>, IStripeChargeList)
+  protected
+    function CreateObject: IStripeCharge; override;
+    function GetListID: string; override;
+    procedure LoadFromJson(AJson: TJsonObject); override;
   end;
 
 //------------------------------------------------------------------------------
@@ -541,6 +559,7 @@ type
                           var AError: string;
                           const ACurrency: TStripeCurrency = scGbp): IStripeCharge;
     function GetCharge(AChargeID: string): IStripeCharge; overload;
+    function GetCharges: IStripeChargeList;
     procedure GetCharge(AChargeID: string; ACharge: TJsonObject); overload;
 
     function GetCheckoutSession(ASessionID: string): TJsonObject;
@@ -1000,6 +1019,35 @@ begin
   ACharge.FromJSON(GetHttp(C_CHARGES+'/'+AChargeID, nil));
 end;
 
+function TStripe.GetCharges: IStripeChargeList;
+var
+  AResult: string;
+  AJson: TJSONObject;
+  AParams: TStrings;
+begin
+  Result := TStripeChargeList.Create;
+
+  AParams := TStringList.Create;
+  try
+    AParams.Values['limit'] := IntToStr(100);
+    //AParams.Values['created[lt]'] := DateTimeToUnix(EncodeDate(2021,10,22)).ToString;
+
+    AResult := GetHttp(C_CHARGES, AParams);
+    {$IFDEF JSONDATAOBJECTS}
+    AJson := TJSONObject.Parse(AResult) as TJSONObject;
+    {$ELSE}
+    AJson := TJSONObject.ParseJSONValue(AResult) as TJSONObject;
+    {$ENDIF}
+    try
+      Result.LoadFromJson(AJson);
+    finally
+      AJson.Free;
+    end;
+  finally
+    AParams.Free;
+  end;
+end;
+
 function TStripe.GetCheckoutSession(ASessionID: string): TJsonObject;
 var
   AData: string;
@@ -1457,7 +1505,19 @@ end;
 
 constructor TStripeBaseObject.Create;
 begin
+  FJson := TJsonObject.Create;
   FId := '';
+end;
+
+destructor TStripeBaseObject.Destroy;
+begin
+  FJson.Free;
+  inherited;
+end;
+
+function TStripeBaseObject.GetAsJson: string;
+begin
+  Result := FJson.ToJSON;
 end;
 
 function TStripeBaseObject.GetID: string;
@@ -1467,7 +1527,7 @@ end;
 
 procedure TStripeBaseObject.LoadFromJson(AJson: TJsonObject);
 begin
-  FJson := AJson;
+  FJson.Assign(AJson);
   {$IFDEF JSONDATAOBJECTS}
   FId := FJson.S['id'];
   {$ELSE}
@@ -1908,6 +1968,43 @@ begin
 
 
 
+end;
+
+
+{ TStripeChargeList }
+
+function TStripeChargeList.CreateObject: IStripeCharge;
+begin
+  Result := TStripeCharge.Create;
+end;
+
+function TStripeChargeList.GetListID: string;
+begin
+  Result := C_CHARGES;
+end;
+
+procedure TStripeChargeList.LoadFromJson(AJson: TJsonObject);
+var
+  AArray: TJSONArray;
+  ICount: integer;
+begin
+  Clear;
+  if AJson = nil then
+    Exit;
+  {$IFDEF JSONDATAOBJECTS}
+  AArray := AJson.A['data'];
+  {$ELSE}
+  AArray := AJson.Values['data'] as TJSONArray;
+  {$ENDIF}
+
+  for ICount := 0 to AArray.Count-1 do
+  begin
+    {$IFDEF JSONDATAOBJECTS}
+    AddObject.LoadFromJson(AArray.O[ICount]);
+    {$ELSE}
+    AddObject.LoadFromJson(AArray.Items[ICount] as TJSONObject);
+    {$ENDIF}
+  end;
 end;
 
 
